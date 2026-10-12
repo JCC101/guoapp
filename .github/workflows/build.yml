@@ -185,6 +185,9 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
       - name: Build iOS
         run: python3 scripts/build_ios.py ${{ matrix.arguments }}
 
