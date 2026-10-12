@@ -170,9 +170,61 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.4'
+          channel: stable
+          cache: true
+
+      - name: Build iOS
+        run: python3 scripts/build_ios.py ${{ matrix.arguments }}
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ios-payload/Payload"
+          app_path="$(find dist/ios -type d -name '*.app' -print -quit)"
+
+          if [ -z "$app_path" ]; then
+            app_archive="$(find dist/ios -type f -name '*.zip' -print -quit)"
+            if [ -n "$app_archive" ]; then
+              mkdir -p "$RUNNER_TEMP/ios-unpacked"
+              unzip -q "$app_archive" -d "$RUNNER_TEMP/ios-unpacked"
+              app_path="$(find "$RUNNER_TEMP/ios-unpacked" -type d -name '*.app' -print -quit)"
+            fi
+          fi
+
+          if [ -z "$app_path" ]; then
+            echo "找不到 .app，无法生成 IPA"
+            find dist/ios -maxdepth 3 -type f -print
+            exit 1
+          fi
+
+          cp -R "$app_path" "$RUNNER_TEMP/ios-payload/Payload/"
+          mkdir -p dist/ios/ipa
+          (cd "$RUNNER_TEMP/ios-payload" && zip -qry "$GITHUB_WORKSPACE/dist/ios/ipa/${{ matrix.edition }}-ios-unsigned.ipa" Payload)
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.edition }}-ios-unsigned
+          path: dist/ios/ipa/${{ matrix.edition }}-ios-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
   release:
-    needs: [android]
-    if: always() && needs.android.result == 'success'
+    needs: [ios]
+    if: always() && needs.ios.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
